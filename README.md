@@ -28,10 +28,13 @@ The Piano mirror works in 4 mode:
 
 < info coming soon > 
 
+## About this repository
 
 This gibhub repository contains the Visual Studio Project, for creating a Win64 console App to perform the functionality described
 above by using the excellent PortMidi library:
 
 http://portmedia.sourceforge.net/portmidi/
 
-User documentation for the Piano Mirror can be found at: https://www.kundalinisoftware.com/piano-mirror/
+## Getting started
+
+User documentation, and binary installers can be found at: https://www.kundalinisoftware.com/piano-mirror/
