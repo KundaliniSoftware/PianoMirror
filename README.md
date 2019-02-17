@@ -26,7 +26,7 @@ The Piano mirror works in 4 mode:
 
 ## About this repository
 
-This gibhub repository contains the Visual Studio Project, for creating a Win64 console App to perform the functionality described above by using the excellent PortMidi library:
+This gibhub repository contains the Visual Studio Project for creating a Win64 console App to perform the functionality described above by using the excellent PortMidi library:
 
 http://portmedia.sourceforge.net/portmidi/
 
