@@ -14,11 +14,11 @@ The Piano mirror works in 4 mode:
 
 ## no transposition
 
-<info coming soon>
+< info coming soon >
 
 ## left hand ascending mode 
 
-<info coming soon>
+< info coming soon >
 
 ## right hand descending mode
 
