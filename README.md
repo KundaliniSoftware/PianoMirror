@@ -18,13 +18,15 @@ To utilize this software, it is necessary to have a USB-to-Midi interface betwee
 
 Assuming local off is enabled and the digital piano is connected to a computer running this software, the purpose of the Piano Mirror is to echo incoming midi messages to midi out, after performing a suitable transpostion. This transposition (or remapping) has the effect of transforming which physical key on the piano corresponds to which sound that is produced. 
 
+Again, please see the blog post above for why we would want to do this.
+
 ## About this repository
 
-This gibhub repository contains the Visual Studio Project for creating a Win64 console App to perform the functionality described above by using the excellent PortMidi library:
+This gibhub repository contains a Visual Studio 2017 Project for creating a Win64 console App to perform the functionality described above by using the excellent PortMidi library:
 
 http://portmedia.sourceforge.net/portmidi/
 
-Currently no installers exist, I just relased the source. 
+Currently no installers exist; I just relased the source. 
 
 Benjamin Pritchard / Kundalini Software
 24-Feb-2019
