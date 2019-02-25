@@ -12,7 +12,7 @@ For a complete explanation of how this software works, and why it is useful, ple
 
 https://www.kundalinisoftware.com/piano-mirror/
 
-##Hardware
+## Hardware
 
 To utilize this software, it is necessary to have a USB-to-Midi interface between a Windows computer and a Midi Keyboard that features a "local off feature". (Local off means for the digital piano to send midi messages each time a key is pressed, but to not produce sound. Please consult the documentation for your digital keyboard to verify if "local off" is available, and if so, how to enable it.)
 
