@@ -1,12 +1,12 @@
 # About
- 
-**The Kundalini Piano Mirror** a program for real-time transposition (remapping) of midi messages, designed for use with a standard midi piano keyboard.
+
+"**The Kundalini Piano Mirror** a program for real-time transposition (remapping) of midi messages, designed for use with a standard midi piano keyboard.
 
 The remapping performed results in changing which pitches are produced from which notes, making novel ways of playing the piano keyboard possible.
 
 Specifically, the Piano Mirror software makes it possible to either mirror left-handed passages into the right hand, mirror right-handed passages into the left hand, or to completely reverse the keyboard such that the left hand plays the original right-hand part in mirror image, while the left hand simultaneously plays the original right-hand part in mirror image.
 
-[..] 
+[..]"
 
 For a complete explanation of how this software works, and why it is useful, please read this post:
 
