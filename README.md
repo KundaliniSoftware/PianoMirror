@@ -29,5 +29,6 @@ This gibhub repository contains a Visual Studio Project for creating a Win32 con
 
 http://portmedia.sourceforge.net/portmidi/
 
-
+Benjamin Pritchard / Kundalini Software
+24-Feb-2019
 
