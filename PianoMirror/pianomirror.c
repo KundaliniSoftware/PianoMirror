@@ -1,6 +1,6 @@
 //
 // PianoMirror.c
-// https://www.KundaliniSoftware.com/PianoMirror
+// https://www.kundalinisoftware.com/piano-mirror/
 //
 // Benjamin Pritchard / Kundalini Software
 //
