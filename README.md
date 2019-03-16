@@ -1,4 +1,4 @@
-﻿﻿# About
+﻿#﻿# About
 
 **The Kundalini Piano Mirror** is a program for real-time transposition (remapping) of midi messages. 
 
@@ -10,7 +10,7 @@ These three remapping types are referred to as "Left Hand Ascending Mode", "Righ
 
 For additional information and explanation of these modes, along with background information on symmetrical inversion and why this software is useful, please see the website for this project: https://www.kundalinisoftware.com/piano-mirror/
 
-#Hardware
+##Hardware
 
 To utilize this software, it is necessary to have a USB-to-Midi interface between a Windows computer and a Midi Keyboard that features a "local off feature". Enabling "Local off" mode the digital piano to send midi messages via midi out each time a key is pressed, but to not produce any sound. Instead, the keyboard will produce sound only for *incoming* midi messages -- which in this case, will be the remapped messages sent by the Piano Mirror software.
 
