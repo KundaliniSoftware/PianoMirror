@@ -4,21 +4,18 @@
 //
 // Benjamin Pritchard / Kundalini Software
 //
-// Program to perform MIDI remapping to support a left handed piano using the portmidi libraries. (see webpage above for more information)
+// Program to perform MIDI remapping to create a left handed piano using the portmidi libraries. (see webpage above for more information)
 // (Adapted from example programs included with portmidi.)
 //
-// Version History
+// Version History 
 //
 //		1.0		9-Feb-2019		Initial Version
 //		1.1		16-Feb-2019		Added ability to cycle through transposing modes using Low A on the piano
-// 
-//
-//  TODO:
-//		- create README mark-down file
-//		- create installer for Windows
+//		1.2		15-March-2019	Project cleanup, added version resource
 //
 
-const char *VersionString = "1.1";
+// This string must be updated here, as well as in PianoMirro.rc!!!
+const char *VersionString = "1.2";				
 
 #include "stdio.h"
 #include "stdlib.h"
@@ -349,8 +346,8 @@ int main(int argc, char *argv[])
 	char line[STRING_MAX];
 
 	/* determine what type of test to run */
-	printf("PianoMirror version %s, written by Benjamin Pritchard\n", VersionString);
-	printf("Make sure to turn off local echo mode on your digital piano.\n");
+	printf("Kundalini Piano Mirror version %s, written by Benjamin Pritchard\n", VersionString);
+	printf("NOTE: Make sure to turn off local echo mode on your digital piano.\n");
 
 	initialize();
 

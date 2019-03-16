@@ -135,12 +135,16 @@
     <ClInclude Include="portmidi\pmutil.h" />
     <ClInclude Include="portmidi\portmidi.h" />
     <ClInclude Include="portmidi\porttime.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="portmidi\portmidi_s.lib" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="PianoMirror.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
