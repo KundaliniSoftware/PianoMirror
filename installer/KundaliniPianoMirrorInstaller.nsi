@@ -2,13 +2,13 @@
 
 ; Define your application name
 !define APPNAME "Kundalini Piano Mirror"
-!define APPNAMEANDVERSION "Kundalini Piano Mirror 1.0"
+!define APPNAMEANDVERSION "Kundalini Piano Mirror 1.3"
 
 ; Main Install settings
 Name "${APPNAMEANDVERSION}"
 InstallDir "$PROGRAMFILES\Kundalini Piano Mirror"
 InstallDirRegKey HKLM "Software\${APPNAME}" ""
-OutFile "KundaliniPianoMirror-x86-1.0.exe"
+OutFile "KundaliniPianoMirror-x86-1.3.exe"
 
 ; Modern interface settings
 !include "MUI.nsh"

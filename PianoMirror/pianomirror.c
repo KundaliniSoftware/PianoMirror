@@ -7,23 +7,41 @@
 // Program to perform MIDI remapping to create a left handed piano using the portmidi libraries. (see webpage above for more information)
 // (Adapted from example programs included with portmidi.)
 //
+// This is the Windows version of this code, 
+//
 // Version History 
 //
 //		1.0		9-Feb-2019		Initial Version
 //		1.1		16-Feb-2019		Added ability to cycle through transposing modes using Low A on the piano
 //		1.2		15-March-2019	Project cleanup, added version resource
+//		1.3		4-April-2019	Updated to include icon
+//		1.4		20-Feb-2020		Added LAU scripting language to process scripts during MIDI call backs
 //
 
 // This string must be updated here, as well as in PianoMirro.rc!!!
-const char *VersionString = "1.2";				
+const char *VersionString = "1.3";				
 
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
-#include "assert.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <fcntl.h>
+#include <conio.h> 
+
+#include <windows.h>
+
 #include "portmidi\portmidi.h"
 #include "portmidi\pmutil.h"
 #include "portmidi\porttime.h"
+
+#include "lua\include\lua.h"
+#include "lua\include\lualib.h"
+#include "lua\include\lauxlib.h"
+
+#pragma warning(disable:4996)			// need to use scanf MS Visual C
+
+// update this eventually...
+char SCRIPT_LOCATION[] = "C:\\kundalini\\lua scripts\\";
 
 // message queues for the main thread to communicate with the call back
 PmQueue *callback_to_main;
@@ -33,6 +51,8 @@ PmQueue *main_to_callback;
 
 PmStream *midi_in;		// incoming midi data from piano
 PmStream *midi_out;		// (transposed) outgoing midi 
+
+char script_file[255];
 
 #define IN_QUEUE_SIZE	1024		
 #define OUT_QUEUE_SIZE	1024
@@ -64,7 +84,15 @@ enum transpositionModes {NO_TRANSPOSITION, LEFT_ASCENDING, RIGHT_DESCENDING, MIR
 enum transpositionModes transpositionMode = NO_TRANSPOSITION;
 int splitPoint = 62;	// default to middle d
 
+lua_State* Lua_State;
+
+// 0 means no threshold; just let through all notes... 
+// otherwise, this number represents the highest velocity number that we will let through
+int velocityThreshhold = 0;	
+
 int callback_active = FALSE;
+
+int script_is_loaded = FALSE;
 
 // takes an input node, and maps it according to current transposition mode
 PmMessage TransformNote(PmMessage Note) {
@@ -95,7 +123,7 @@ PmMessage TransformNote(PmMessage Note) {
 		} // else do nothing;
 		break;
 	
-		// completely reverse the keyboard
+	// completely reverse the keyboard
 	case MIRROR_IMAGE:
 		if (Note == 62) {
 			// do nothing
@@ -200,16 +228,58 @@ void process_midi(PtTimestamp timestamp, void *userData)
 			data1 = Pm_MessageData1(buffer.message);
 			data2 = Pm_MessageData2(buffer.message);
 
+			int orig_volume = data2;
+
 			if (FALSE) {
 				printf("status = %d, data1 = %d, data2 = %d \n", status, data1, data2);
 			}
 
+			// do transposition logic
 			PmMessage NewNote = TransformNote(data1);
 
-			buffer.message =
-				Pm_Message(Pm_MessageStatus(buffer.message), NewNote, Pm_MessageData2(buffer.message));
+			/*
+			// do logic associated with channel number
+			int channel = 1;
+			if (data1 < 62) channel = 1; else channel = 3;
+			status = status | channel;
+			*/
 
-			Pm_Write(midi_out, &buffer, 1);
+			// do logic associated with quite mode
+			int shouldEcho = (data2 < velocityThreshhold) || (velocityThreshhold == 0);
+
+			//--------------------------------------------------------------
+
+			if (Lua_State) {
+
+				// Push the fib function on the top of the lua stack
+				lua_getglobal(Lua_State, "process_midi");
+
+				lua_pushnumber(Lua_State, status);
+				lua_pushnumber(Lua_State, data1);
+				lua_pushnumber(Lua_State, data2);
+
+				lua_call(Lua_State, 3, 3);
+
+				// Get the result from the lua stack
+				status = (int)lua_tointeger(Lua_State, -3);
+				data1 = (int)lua_tointeger(Lua_State, -2);
+				data2 = (int)lua_tointeger(Lua_State, -1);
+				
+
+				// Clean up.  If we don't do this last step, we'll leak stack memory.
+				lua_pop(Lua_State, 3);
+
+			}
+
+			//------------------------------------------------------
+
+
+			buffer.message =
+				Pm_Message(status, NewNote, data2);
+
+			shouldEcho = (data2 != 0);
+			if (shouldEcho)
+				Pm_Write(midi_out, &buffer, 1);
 
 			if (data1 == 21 && data2 == 0) {
 				DoNextTranspositionMode();
@@ -271,7 +341,7 @@ void initialize()
 	callback_active = TRUE;
 }
 
-void shutdown()
+void shutdownSystem()
 {
 	// shutting everything down; just ignore all errors; nothing we can do anyway...
 
@@ -283,6 +353,11 @@ void shutdown()
 	Pm_Close(midi_out);
 
 	Pm_Terminate();
+
+	// close down our lua interpreter 
+	if (Lua_State) {
+		lua_close(Lua_State);
+	}
 
 }
 
@@ -337,11 +412,116 @@ void set_transposition_mode(enum transpositionModes newmode) {
 
 }
 
+/*
+* Check if a file exist using fopen() function
+* return 1 if the file exist otherwise return 0
+*/
+int fileexists(const char * filename) {
+	/* try to open file to read */
+	FILE *file;
+	if (file = fopen(filename, "r")) {
+		fclose(file);
+		return 1;
+	}
+	return 0;
+}
+
+void LoadLuaScript()
+{
+	
+	char tmp[255];
+
+	if (Lua_State) {
+		lua_close(Lua_State);
+	}
+
+	// each time we call this function, we create a new environment
+	// this is so that we can have a script loaded... then change it, and reload our changes 
+	Lua_State = luaL_newstate();
+	luaL_openlibs(Lua_State);
+
+	printf("Enter lua script: ");
+	
+	if (scanf("%s", tmp) == 1) {
+
+		strcpy(script_file, SCRIPT_LOCATION);
+		strcat(script_file, tmp);
+
+		if (fileexists(script_file))
+		{
+			luaL_dofile(Lua_State, script_file);
+			script_is_loaded = TRUE;
+		}
+		else
+			printf("error loading lau script: %s\n", script_file);
+	}
+
+}
+
+void ReLoadLuaScript()
+{
+
+	if (Lua_State) {
+		lua_close(Lua_State);
+	}
+
+	// each time we call this function, we create a new environment
+	// this is so that we can have a script loaded... then change it, and reload our changes 
+	Lua_State = luaL_newstate();
+	luaL_openlibs(Lua_State);
+
+	if (fileexists(script_file))
+		luaL_dofile(Lua_State, script_file);
+	else
+		printf("error loading lau script\n");
+	
+}
+
+int ShouldReloadFile(char* filename)
+{
+
+	static int isFirstTime = TRUE;
+	static FILETIME old_Write;
+
+	FILETIME ftCreate, ftAccess, ftWrite;
+	SYSTEMTIME stUTC, stLocal;
+	HANDLE hFile;
+
+	hFile = CreateFile(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+
+	// Retrieve the file times for the file.
+	if (!GetFileTime(hFile, &ftCreate, &ftAccess, &ftWrite)) {
+		CloseHandle(hFile);
+		return FALSE;
+	}
+
+	// if this is the first time we are checking, then we definitely shouldn't reload the file
+	if (isFirstTime) {
+		isFirstTime = FALSE;
+		old_Write.dwLowDateTime = ftWrite.dwLowDateTime;
+		old_Write.dwHighDateTime = ftWrite.dwHighDateTime;
+		CloseHandle(hFile);
+		return FALSE;
+	}
+
+	CloseHandle(hFile);
+	int retval = (old_Write.dwLowDateTime != ftWrite.dwLowDateTime || old_Write.dwHighDateTime != ftWrite.dwHighDateTime);
+
+	old_Write.dwLowDateTime = ftWrite.dwLowDateTime;
+	old_Write.dwHighDateTime = ftWrite.dwHighDateTime;
+
+	return retval;
+
+}
+
+
 int main(int argc, char *argv[])
-{	
+{
+
+	DWORD  last_count = 0;
 
 	int finished;
-	
+
 	int len;
 	char line[STRING_MAX];
 
@@ -355,42 +535,88 @@ int main(int argc, char *argv[])
 
 	printf("commands:\n");
 	printf(" 0 [enter] for no transposing \n 1 [enter] for left ascending mode \n 2 [enter] for right hand descending mode \n 3 [enter] for mirror image mode\n");
+	printf(" 4 [enter] for quiet mode\n");
+	printf(" 5 [enter] to load lua script\n");
+	printf(" 6 [enter] clear lua state\n");
+	printf(" 7 [enter] reload last script\n");
 	printf(" q [enter] to quit\n");
+
+	last_count = GetTickCount();
 
 	finished = FALSE;
 	while (!finished) {
 
-		fgets(line, STRING_MAX, stdin);
-		len = strlen(line);
-		if (len > 0) line[len - 1] = 0;
-		
-		if (strcmp(line, "q") == 0) {
-			signalExitToCallBack();
-			finished = TRUE;
-		} 
-
-		if (strcmp(line, "0") == 0) {
-			set_transposition_mode(NO_TRANSPOSITION);
-			printf("no tranposition active\n");
+		if (GetTickCount() > (last_count + 5000)) {
+			last_count = GetTickCount();
+			//printf("5 seconds elapsed\n");
+			if (script_is_loaded)
+				if (ShouldReloadFile(script_file))
+				{
+					printf("script modified...\n");
+					ReLoadLuaScript();
+				}
 		}
 
-		if (strcmp(line, "1") == 0) {
-			set_transposition_mode(LEFT_ASCENDING);
-			printf("Left hand ascending mode active\n");
-		}
+		// this is not portable, but that is OK because this project has become the "Windows" version of this software...
+		if (kbhit()) {
+			fgets(line, STRING_MAX, stdin);
+			len = strlen(line);
+			if (len > 0) line[len - 1] = 0;
 
-		if (strcmp(line, "2") == 0) {
-			set_transposition_mode(RIGHT_DESCENDING);
-			printf("Right Hand Descending mode active\n");
-		}
+			if (strcmp(line, "q") == 0) {
+				signalExitToCallBack();
+				finished = TRUE;
+			}
 
-		if (strcmp(line, "3") == 0) {
-			set_transposition_mode(MIRROR_IMAGE);
-			printf("Keyboard mirring mode active\n");
+			if (strcmp(line, "0") == 0) {
+				set_transposition_mode(NO_TRANSPOSITION);
+				printf("no tranposition active\n");
+			}
+
+			if (strcmp(line, "1") == 0) {
+				set_transposition_mode(LEFT_ASCENDING);
+				printf("Left hand ascending mode active\n");
+			}
+
+			if (strcmp(line, "2") == 0) {
+				set_transposition_mode(RIGHT_DESCENDING);
+				printf("Right Hand Descending mode active\n");
+			}
+
+			if (strcmp(line, "3") == 0) {
+				set_transposition_mode(MIRROR_IMAGE);
+				printf("Keyboard mirring mode active\n");
+			}
+
+			if (strcmp(line, "4") == 0) {
+				printf("Enter volocity threshold, or 0 to disable quiet mode: ");
+				int n;
+				if (scanf("%d", &n) == 1) {
+					velocityThreshhold = n;
+					if (n == 0) printf("quiet mode turned off\n");
+					else printf("threshold set to %d\n", n);
+				}
+			}
+
+			if (strcmp(line, "5") == 0) {
+				LoadLuaScript();
+			}
+
+			if (strcmp(line, "6") == 0) {
+				if (Lua_State) {
+					lua_close(Lua_State);
+					Lua_State = 0;
+				}
+			}
+
+			if (strcmp(line, "7") == 0) {
+				ReLoadLuaScript();
+			}
+
 		}
 
 	} // while (!finished)
 
-	shutdown();
+	shutdownSystem();
 	return 0;
 }
