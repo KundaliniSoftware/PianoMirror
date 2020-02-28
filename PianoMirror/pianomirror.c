@@ -4,10 +4,14 @@
 //
 // Benjamin Pritchard / Kundalini Software
 //
-// Program to perform MIDI remapping to create a left handed piano using the portmidi libraries. (see webpage above for more information)
-// (Adapted from example programs included with portmidi.)
+// Program to perform real-time MIDI remapping. 
 //
-// This is the Windows version of this code, 
+// This is the Windows version of this code. It began life as a port of the ANSI C code I wrote under Linux, based on examples
+// from portMidi. 
+//
+// Over the course of time, this gained more Windows-specific features. Additionally, as of version 1.4, I added support for user-defined
+// .LUA scripts, which allowed this code to quit being "just a piano mirror", but instead to begin to support other creative uses of real-time
+// MIDI remapping. What I am doing with it currently, is using it to implement "computer assisted dynamics".
 //
 // Version History 
 //
@@ -15,11 +19,12 @@
 //		1.1		16-Feb-2019		Added ability to cycle through transposing modes using Low A on the piano
 //		1.2		15-March-2019	Project cleanup, added version resource
 //		1.3		4-April-2019	Updated to include icon
-//		1.4		20-Feb-2020		Added LAU scripting language to process scripts during MIDI call backs
+//		1.4		20-Feb-2020		Added LUA scripting language to process scripts during MIDI call backs
+//		1.5		22-Feb-2020		Added metronome functionality
 //
 
 // This string must be updated here, as well as in PianoMirro.rc!!!
-const char *VersionString = "1.3";				
+const char *VersionString = "1.5";				
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +32,6 @@ const char *VersionString = "1.3";
 #include <assert.h>
 #include <fcntl.h>
 #include <conio.h> 
-
 #include <windows.h>
 
 #include "portmidi\portmidi.h"
@@ -37,6 +41,8 @@ const char *VersionString = "1.3";
 #include "lua\include\lua.h"
 #include "lua\include\lualib.h"
 #include "lua\include\lauxlib.h"
+
+#include "metronome.h"
 
 #pragma warning(disable:4996)			// need to use scanf MS Visual C
 
@@ -85,6 +91,8 @@ enum transpositionModes transpositionMode = NO_TRANSPOSITION;
 int splitPoint = 62;	// default to middle d
 
 lua_State* Lua_State;
+
+int finished = FALSE;
 
 // 0 means no threshold; just let through all notes... 
 // otherwise, this number represents the highest velocity number that we will let through
@@ -180,9 +188,14 @@ void exit_with_message(char *msg)
 	exit(1);
 }
 
+void ProcessOldAutoLegatos() {
+
+}
+
 // callback function 
 void process_midi(PtTimestamp timestamp, void *userData)
 {
+
 	PmError result;
 	PmEvent buffer;
 
@@ -228,8 +241,6 @@ void process_midi(PtTimestamp timestamp, void *userData)
 			data1 = Pm_MessageData1(buffer.message);
 			data2 = Pm_MessageData2(buffer.message);
 
-			int orig_volume = data2;
-
 			if (FALSE) {
 				printf("status = %d, data1 = %d, data2 = %d \n", status, data1, data2);
 			}
@@ -237,17 +248,10 @@ void process_midi(PtTimestamp timestamp, void *userData)
 			// do transposition logic
 			PmMessage NewNote = TransformNote(data1);
 
-			/*
-			// do logic associated with channel number
-			int channel = 1;
-			if (data1 < 62) channel = 1; else channel = 3;
-			status = status | channel;
-			*/
-
 			// do logic associated with quite mode
 			int shouldEcho = (data2 < velocityThreshhold) || (velocityThreshhold == 0);
 
-			//--------------------------------------------------------------
+			// Run any user-defined .LUA scripts
 
 			if (Lua_State) {
 
@@ -264,23 +268,20 @@ void process_midi(PtTimestamp timestamp, void *userData)
 				status = (int)lua_tointeger(Lua_State, -3);
 				data1 = (int)lua_tointeger(Lua_State, -2);
 				data2 = (int)lua_tointeger(Lua_State, -1);
-				
 
 				// Clean up.  If we don't do this last step, we'll leak stack memory.
 				lua_pop(Lua_State, 3);
 
 			}
 
-			//------------------------------------------------------
-
-
 			buffer.message =
 				Pm_Message(status, NewNote, data2);
 
-			shouldEcho = (data2 != 0);
 			if (shouldEcho)
 				Pm_Write(midi_out, &buffer, 1);
 
+			// very bottom note on the piano can be used to toggle through the transpotion modes...
+			// (it is not used very much anyway)
 			if (data1 == 21 && data2 == 0) {
 				DoNextTranspositionMode();
 			}
@@ -343,7 +344,14 @@ void initialize()
 
 void shutdownSystem()
 {
-	// shutting everything down; just ignore all errors; nothing we can do anyway...
+
+	// close down our lua interpreter 
+	if (Lua_State) {
+		lua_close(Lua_State);
+	}
+
+	// shut down our .MIDI interface
+	// we just ignore all errors; nothing we can do anyway...
 
 	Pt_Stop();
 	Pm_QueueDestroy(callback_to_main);
@@ -353,11 +361,6 @@ void shutdownSystem()
 	Pm_Close(midi_out);
 
 	Pm_Terminate();
-
-	// close down our lua interpreter 
-	if (Lua_State) {
-		lua_close(Lua_State);
-	}
 
 }
 
@@ -458,6 +461,7 @@ void LoadLuaScript()
 
 }
 
+// resets the LUA state, and reloads [restarts] the last script we had loaded
 void ReLoadLuaScript()
 {
 
@@ -477,6 +481,7 @@ void ReLoadLuaScript()
 	
 }
 
+// returns TRUE if the loaded script has been modified, so that we can reload it
 int ShouldReloadFile(char* filename)
 {
 
@@ -484,7 +489,6 @@ int ShouldReloadFile(char* filename)
 	static FILETIME old_Write;
 
 	FILETIME ftCreate, ftAccess, ftWrite;
-	SYSTEMTIME stUTC, stLocal;
 	HANDLE hFile;
 
 	hFile = CreateFile(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
@@ -514,16 +518,113 @@ int ShouldReloadFile(char* filename)
 
 }
 
+void PrintHelp()
+{
+	printf("commands:\n"
+	" 0 [enter] for no transposing \n"
+	" 1 [enter] for left ascending mode \n"
+	" 2 [enter] for right hand descending mode \n"
+	" 3 [enter] for mirror image mode\n"
+	" 4 [enter] for quiet mode\n"
+	" 5 [enter] to load lua script\n"
+	" 6 [enter] clear lua state\n"
+	" 7 [enter] reload last script\n"
+	" 8 [enter] set metronome BMP\n"
+	" 9 [enter] enable\\disable metronome\n"
+	" q [enter] to quit\n");
+
+}
+
+void HandleKeyboard()
+{
+	int len;
+	char line[STRING_MAX];
+
+	fgets(line, STRING_MAX, stdin);
+	len = strlen(line);
+	if (len > 0) line[len - 1] = 0;
+
+	if (strcmp(line, "q") == 0) {
+		signalExitToCallBack();
+		finished = TRUE;
+	}
+
+	if (strcmp(line, "?") == 0) {
+		PrintHelp();
+	}
+
+	if (strcmp(line, "0") == 0) {
+		set_transposition_mode(NO_TRANSPOSITION);
+		printf("no tranposition active\n");
+	}
+
+	if (strcmp(line, "1") == 0) {
+		set_transposition_mode(LEFT_ASCENDING);
+		printf("Left hand ascending mode active\n");
+	}
+
+	if (strcmp(line, "2") == 0) {
+		set_transposition_mode(RIGHT_DESCENDING);
+		printf("Right Hand Descending mode active\n");
+	}
+
+	if (strcmp(line, "3") == 0) {
+		set_transposition_mode(MIRROR_IMAGE);
+		printf("Keyboard mirring mode active\n");
+	}
+
+	if (strcmp(line, "4") == 0) {
+		printf("Enter volocity threshold, or 0 to disable quiet mode: ");
+		int n;
+		if (scanf("%d", &n) == 1) {
+			velocityThreshhold = n;
+			if (n == 0) printf("quiet mode turned off\n");
+			else printf("threshold set to %d\n", n);
+		}
+	}
+
+	if (strcmp(line, "5") == 0) {
+		LoadLuaScript();
+	}
+
+	if (strcmp(line, "6") == 0) {
+		if (Lua_State) {
+			lua_close(Lua_State);
+			Lua_State = 0;
+		}
+	}
+
+	if (strcmp(line, "7") == 0) {
+		ReLoadLuaScript();
+	}
+
+	if (strcmp(line, "8") == 0) {
+		printf("Enter bpm: ");
+		int n;
+		if (scanf("%d", &n) == 1) {
+			bpm = n;
+			printf("bmp set to %d\n", n);
+		}
+	}
+
+	if (strcmp(line, "9") == 0) {
+		if (metronome_enabled) {
+			DisableMetronome();
+			printf("metronome disabled\n");
+		}
+		else {
+			EnableMetronome();
+			printf("metronome enabled\n");
+		}
+
+	}
+
+}
 
 int main(int argc, char *argv[])
 {
 
 	DWORD  last_count = 0;
-
-	int finished;
-
-	int len;
-	char line[STRING_MAX];
 
 	/* determine what type of test to run */
 	printf("Kundalini Piano Mirror version %s, written by Benjamin Pritchard\n", VersionString);
@@ -533,22 +634,24 @@ int main(int argc, char *argv[])
 
 	printf("no tranposition active\n");
 
-	printf("commands:\n");
-	printf(" 0 [enter] for no transposing \n 1 [enter] for left ascending mode \n 2 [enter] for right hand descending mode \n 3 [enter] for mirror image mode\n");
-	printf(" 4 [enter] for quiet mode\n");
-	printf(" 5 [enter] to load lua script\n");
-	printf(" 6 [enter] clear lua state\n");
-	printf(" 7 [enter] reload last script\n");
-	printf(" q [enter] to quit\n");
+	PrintHelp();
 
 	last_count = GetTickCount();
+
+	InitMetronome();
 
 	finished = FALSE;
 	while (!finished) {
 
+		DoMetronome();
+
+		// once every 5 seconds, check to see any loaded .LUA scrips have been modified [externally, i.e. in a text editor]
+		// and re-load them if so
 		if (GetTickCount() > (last_count + 5000)) {
 			last_count = GetTickCount();
-			//printf("5 seconds elapsed\n");
+
+			//printf("%d:%d\n", measure, beat);
+
 			if (script_is_loaded)
 				if (ShouldReloadFile(script_file))
 				{
@@ -557,65 +660,16 @@ int main(int argc, char *argv[])
 				}
 		}
 
-		// this is not portable, but that is OK because this project has become the "Windows" version of this software...
+		// (this is not portable, but that is OK because this project has become the "Windows" version of this software
 		if (kbhit()) {
-			fgets(line, STRING_MAX, stdin);
-			len = strlen(line);
-			if (len > 0) line[len - 1] = 0;
-
-			if (strcmp(line, "q") == 0) {
-				signalExitToCallBack();
-				finished = TRUE;
-			}
-
-			if (strcmp(line, "0") == 0) {
-				set_transposition_mode(NO_TRANSPOSITION);
-				printf("no tranposition active\n");
-			}
-
-			if (strcmp(line, "1") == 0) {
-				set_transposition_mode(LEFT_ASCENDING);
-				printf("Left hand ascending mode active\n");
-			}
-
-			if (strcmp(line, "2") == 0) {
-				set_transposition_mode(RIGHT_DESCENDING);
-				printf("Right Hand Descending mode active\n");
-			}
-
-			if (strcmp(line, "3") == 0) {
-				set_transposition_mode(MIRROR_IMAGE);
-				printf("Keyboard mirring mode active\n");
-			}
-
-			if (strcmp(line, "4") == 0) {
-				printf("Enter volocity threshold, or 0 to disable quiet mode: ");
-				int n;
-				if (scanf("%d", &n) == 1) {
-					velocityThreshhold = n;
-					if (n == 0) printf("quiet mode turned off\n");
-					else printf("threshold set to %d\n", n);
-				}
-			}
-
-			if (strcmp(line, "5") == 0) {
-				LoadLuaScript();
-			}
-
-			if (strcmp(line, "6") == 0) {
-				if (Lua_State) {
-					lua_close(Lua_State);
-					Lua_State = 0;
-				}
-			}
-
-			if (strcmp(line, "7") == 0) {
-				ReLoadLuaScript();
-			}
-
+			HandleKeyboard();
 		}
 
+		DoMetronome();
+
 	} // while (!finished)
+
+	KillMetronome();
 
 	shutdownSystem();
 	return 0;

@@ -21,6 +21,12 @@
     <ClCompile Include="pianomirror.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="metronome.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="wave.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="portmidi\pmutil.h">
@@ -34,6 +40,12 @@
     </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="metronome.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="wave.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -64,5 +76,10 @@
     <Image Include="..\icons\musicpianicon512_ukU_icon.ico">
       <Filter>Resource Files</Filter>
     </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <Media Include="wav\move.wav">
+      <Filter>Resource Files</Filter>
+    </Media>
   </ItemGroup>
 </Project>

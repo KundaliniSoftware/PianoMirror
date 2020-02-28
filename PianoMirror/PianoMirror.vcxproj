@@ -129,13 +129,17 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="metronome.c" />
     <ClCompile Include="pianomirror.c" />
+    <ClCompile Include="wave.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="metronome.h" />
     <ClInclude Include="portmidi\pmutil.h" />
     <ClInclude Include="portmidi\portmidi.h" />
     <ClInclude Include="portmidi\porttime.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="wave.h" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="portmidi\portmidi_s.lib" />
@@ -151,6 +155,9 @@
     <Image Include="..\icons\musicpianicon512_ukU_icon.ico" />
     <Image Include="icon1.ico" />
     <Image Include="icon2.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <Media Include="wav\move.wav" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

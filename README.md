@@ -16,7 +16,6 @@ To utilize this software, it is necessary to have a USB-to-Midi interface betwee
 
 Please consult the documentation for your digital keyboard to verify if "local off" is available, and if so, how to enable it. Additionally, please note that if local off is not available, this software will not function as intended.
 
-
 ## Getting started
 
 Complete documentation (and pre-built binary installers) can be found at:
@@ -28,6 +27,8 @@ https://www.kundalinisoftware.com/piano-mirror/
 This gibhub repository contains a Visual Studio Project for creating a Win32 console App to perform the functionality described above by using the excellent PortMidi library:
 
 http://portmedia.sourceforge.net/portmidi/
+
+Additionally, starting with version 1.4, it is now possible to run user-supplied .LUA scripts to process the midi data. 
 
 Benjamin Pritchard / Kundalini Software
 24-Feb-2019
