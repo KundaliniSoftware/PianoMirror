@@ -21,10 +21,12 @@
 //		1.3		4-April-2019	Updated to include icon
 //		1.4		20-Feb-2020		Added LUA scripting language to process scripts during MIDI call backs
 //		1.5		22-Feb-2020		Added metronome functionality
+//		1.6		15-June-2020	Bug Fixes to metronome functionality; also added ability to use two .WAV files; one for the downbeat; and implemented ability to set beats per measure
+//
 //
 
 // This string must be updated here, as well as in PianoMirro.rc!!!
-const char *VersionString = "1.5";				
+const char *VersionString = "1.6";				
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -207,6 +209,8 @@ void process_midi(PtTimestamp timestamp, void *userData)
 		return;
 	}
 
+	DoMetronome();
+
 	// process messages from the main thread
 	do {
 		result = Pm_Dequeue(main_to_callback, &cmd);
@@ -344,6 +348,8 @@ void initialize()
 
 void shutdownSystem()
 {
+
+	KillMetronome();
 
 	// close down our lua interpreter 
 	if (Lua_State) {
@@ -521,17 +527,18 @@ int ShouldReloadFile(char* filename)
 void PrintHelp()
 {
 	printf("commands:\n"
-	" 0 [enter] for no transposing \n"
-	" 1 [enter] for left ascending mode \n"
-	" 2 [enter] for right hand descending mode \n"
-	" 3 [enter] for mirror image mode\n"
-	" 4 [enter] for quiet mode\n"
-	" 5 [enter] to load lua script\n"
-	" 6 [enter] clear lua state\n"
-	" 7 [enter] reload last script\n"
-	" 8 [enter] set metronome BMP\n"
-	" 9 [enter] enable\\disable metronome\n"
-	" q [enter] to quit\n");
+	" 0  [enter] for no transposing \n"
+	" 1  [enter] for left ascending mode \n"
+	" 2  [enter] for right hand descending mode \n"
+	" 3  [enter] for mirror image mode\n"
+	" 4  [enter] for quiet mode\n"
+	" 5  [enter] to load lua script\n"
+	" 6  [enter] clear lua state\n"
+	" 7  [enter] reload last script\n"
+	" 8  [enter] set metronome BMP\n"
+	" 9  [enter] set time signature\n"
+	" 10 [enter] enable\\disable metronome\n"
+	" q  [enter] to quit\n");
 
 }
 
@@ -550,6 +557,10 @@ void HandleKeyboard()
 	}
 
 	if (strcmp(line, "?") == 0) {
+		PrintHelp();
+	}
+
+	if (strcmp(line, "") == 0) {
 		PrintHelp();
 	}
 
@@ -602,12 +613,56 @@ void HandleKeyboard()
 		printf("Enter bpm: ");
 		int n;
 		if (scanf("%d", &n) == 1) {
-			bpm = n;
+			setBeatsPerMinute(n);							// this will reinitialize the timer for the metronome to the right frequency for us...
 			printf("bmp set to %d\n", n);
 		}
 	}
 
 	if (strcmp(line, "9") == 0) {
+		
+		printf("\nTime Signatures:\n"
+			" 0 [enter] none (just click on each beat) \n"
+			" 1 [enter] 2/4 \n"
+			" 2 [enter] 3/4 \n"
+			" 3 [enter] 4/4 \n"
+			" 4 [enter] 5/4 \n"
+			" 5 [enter] 6/8 \n");
+
+		int timeSig;
+		if (scanf("%d", &timeSig) == 1) {
+
+			switch (timeSig) { 
+			case 0:
+				printf("none\n");
+				setBeatsPerMeasure(0);
+				break;
+			case 1:
+				printf("2/4\n");
+				setBeatsPerMeasure(2);
+				break;
+			case 2:
+				printf("3/4\n");
+				setBeatsPerMeasure(3);
+				break;
+			case 3:
+				printf("4/4\n");
+				setBeatsPerMeasure(4);
+				break;
+			case 4:
+				printf("5/4\n");
+				setBeatsPerMeasure(5);
+				break;
+			case 5:
+				printf("6/8\n");
+				setBeatsPerMeasure(6);
+				break;
+			}
+
+		}
+
+	}
+
+	if (strcmp(line, "10") == 0) {
 		if (metronome_enabled) {
 			DisableMetronome();
 			printf("metronome disabled\n");
@@ -643,7 +698,7 @@ int main(int argc, char *argv[])
 	finished = FALSE;
 	while (!finished) {
 
-		DoMetronome();
+		//DoMetronome();
 
 		// once every 5 seconds, check to see any loaded .LUA scrips have been modified [externally, i.e. in a text editor]
 		// and re-load them if so
@@ -661,15 +716,14 @@ int main(int argc, char *argv[])
 		}
 
 		// (this is not portable, but that is OK because this project has become the "Windows" version of this software
+		// (note that while we are doing this, we won't be able to process the metronome)
 		if (kbhit()) {
 			HandleKeyboard();
 		}
-
-		DoMetronome();
-
+		
 	} // while (!finished)
 
-	KillMetronome();
+	
 
 	shutdownSystem();
 	return 0;

@@ -9,7 +9,7 @@
 //
 // Usage:
 //		CRscWaveOut_INIT()
-//		LoadWaveResource("TIC")				// pass in the name of your embedded wave resource
+//		LoadWaveResources("wave1", "wave2", GetModuleHandle(NULL));
 //		PlayWave();
 //		CRscWaveOut_Destroy()
 
@@ -27,15 +27,13 @@ void ASSERT(BOOL val) {
 	}
 }
 
-// constructor / destructor changed to just regular functions...
-
 CRscWaveOut_INIT()
 {
-	// default constructor
-	// this class must be initialized by LoadWaveResource
 	m_WaveOutHandle = 0;
+	m_uiWaveCount = 0;
 }
 
+// only call this when you are completely done 
 CRscWaveOut_Destroy()
 {
 	if (m_WaveOutHandle) {
@@ -45,17 +43,21 @@ CRscWaveOut_Destroy()
 		ASSERT(mmresult == MMSYSERR_NOERROR);
 
 		for (UINT i = 0; i < m_uiWaveCount; i++) free(m_arrWaveHeader[i].lpData);
-		//free(m_arrWaveHeader);
+		free(m_arrWaveHeader);
 	}
 }
 
-BOOL LoadWaveResource(LPCSTR resourceName, HINSTANCE Nl)
+// load two wave resources, which must be linked in with a resource file
+// for example: 
+//			w1               WAVE                    "wav\\1.wav"
+//			w2               WAVE                    "wav\\2.wav"
+
+BOOL LoadWaveResources(LPCSTR resourceName1, LPCSTR resourceName2, HINSTANCE Nl)
 {
 
 	if (m_WaveOutHandle) return FALSE;
 
 	m_Nl = Nl;
-	m_uiWaveCount = 1;
 
 	//Initialize wave out device. Sample Waves are all  22050hz, 8bps 
 	WAVEFORMATEX  waveFormat;
@@ -66,7 +68,6 @@ BOOL LoadWaveResource(LPCSTR resourceName, HINSTANCE Nl)
 	waveFormat.nBlockAlign = 1; // waveFormat.nChannels * (waveFormat.wBitsPerSample/8);
 	waveFormat.nAvgBytesPerSec = 44100; // waveFormat.nSamplesPerSec * waveFormat.nBlockAlign;
 	waveFormat.cbSize = 0;
-	//MMRESULT  mmresult = waveOutOpen(&m_WaveOutHandle, WAVE_MAPPER, &waveFormat, (DWORD)hWnd, 0, CALLBACK_WINDOW);
 	MMRESULT mmresult = waveOutOpen(&m_WaveOutHandle, WAVE_MAPPER, &waveFormat, (DWORD)(VOID*)waveInProc, 0, CALLBACK_FUNCTION);
 	ASSERT(mmresult == MMSYSERR_NOERROR);
 	if (mmresult != MMSYSERR_NOERROR) {
@@ -75,13 +76,16 @@ BOOL LoadWaveResource(LPCSTR resourceName, HINSTANCE Nl)
 	}
 
 	// load wave sample into memory
-	m_arrWaveHeader = malloc(m_uiWaveCount); // new WAVEHDR[m_uiWaveCount];
-	BOOL bSuc0 = BuildWAVEHDR(resourceName, &m_arrWaveHeader[0]);
+	m_arrWaveHeader = malloc(sizeof(m_arrWaveHeader[0]) * 2);			// allocate enough memory for two wave headers 
+	 
+	BOOL bSuc0 = BuildWAVEHDR(resourceName1, &m_arrWaveHeader[0]);
 	ASSERT(bSuc0);
-	//BOOL bSuc1 = BuildWAVEHDR(IDR_WAVE_SNARE_HIGH, &m_arrWaveHeader[1]); ASSERT( bSuc1 );
-	//BOOL bSuc2 = BuildWAVEHDR(IDR_WAVE_KICK_HIGH, &m_arrWaveHeader[2]);ASSERT( bSuc2 );
-	//if ( !bSuc0 && !bSuc0 && !bSuc0 ) {
-	if (!bSuc0) {
+	BOOL bSuc1 = BuildWAVEHDR(resourceName2, &m_arrWaveHeader[1]);
+	ASSERT( bSuc1 );
+
+	m_uiWaveCount = 2;
+	
+	if ( !bSuc0 && !bSuc1) {
 		//TRACE("BuildWAVEHDR failed");
 
 		MMRESULT  mmresult = waveOutClose(m_WaveOutHandle);
@@ -89,7 +93,7 @@ BOOL LoadWaveResource(LPCSTR resourceName, HINSTANCE Nl)
 		m_WaveOutHandle = 0;
 
 		for (UINT i = 0; i < m_uiWaveCount; i++) free(m_arrWaveHeader[i].lpData);
-		//free(m_arrWaveHeader);
+		free(m_arrWaveHeader);
 		return FALSE;
 	}
 
@@ -101,8 +105,6 @@ BOOL LoadWaveResource(LPCSTR resourceName, HINSTANCE Nl)
 // greatly helped by http://speech.korea.ac.kr/~kaizer/edu/Lowlevelaudio.htm
 BOOL BuildWAVEHDR(LPCSTR resourceName, WAVEHDR *pWaveHeader)
 {
-	//	HINSTANCE Nl= _Module.GetModuleInstance();  // ATL way
-	//HRSRC hResInfo = FindResource(m_Nl, MAKEINTRESOURCE(uiIDofWaveRes), "WAVE");
 	HRSRC hResInfo = FindResource(m_Nl, resourceName, "WAVE");
 	HANDLE hWaveRes = LoadResource(m_Nl, hResInfo);
 	ASSERT(hWaveRes);
@@ -197,19 +199,8 @@ BOOL BuildWAVEHDR(LPCSTR resourceName, WAVEHDR *pWaveHeader)
 
 	return TRUE;
 }
-void PlayWave()
-{
-	if (!m_WaveOutHandle) return;
 
-	WAVEHDR * pWaveHeader = &m_arrWaveHeader[0];
 
-	// play the sound     	
-	waveOutPrepareHeader(m_WaveOutHandle, pWaveHeader, sizeof(*pWaveHeader));
-	waveOutWrite(m_WaveOutHandle, pWaveHeader, sizeof(*pWaveHeader));
-
-}
-
-/*
 void PlayWave(UINT uiWaveHeaderIndexToPlay)
 {
 	if (uiWaveHeaderIndexToPlay >= m_uiWaveCount) return;
@@ -222,21 +213,7 @@ void PlayWave(UINT uiWaveHeaderIndexToPlay)
 	waveOutWrite(m_WaveOutHandle, pWaveHeader, sizeof(*pWaveHeader));
 
 }
-*/
 
-// use this if you specified CALLBACK_WINDOW in waveOutOpen(...);
-// we need to chain the function to MM_WOM_DONE message handler of a Window class 
-// you can create a simple invisible window class or just add handler to main window for that use
-// then specify hWnd in Initialize(..., hWnd) correctly
-BOOL OnWaveOutDone(WPARAM wParam, LPARAM lParam)
-{
-	ASSERT((UINT)wParam == (UINT)m_WaveOutHandle);
-	//(LPWAVEHDR)lParam must be one of m_arrWaveHeader[3]
-	MMRESULT  mmresult = waveOutUnprepareHeader((HWAVEOUT)wParam, (LPWAVEHDR)lParam, sizeof(WAVEHDR));
-	ASSERT(mmresult == MMSYSERR_NOERROR);
-
-	return TRUE;
-}
 
 // MM_WOM_DONE handling callback 
 static void CALLBACK  waveInProc(HWAVEOUT WaveOutHandle, UINT uMsg, long dwInstance, DWORD dwParam1, DWORD dwParam2)
@@ -244,20 +221,17 @@ static void CALLBACK  waveInProc(HWAVEOUT WaveOutHandle, UINT uMsg, long dwInsta
 
 	switch (uMsg)
 	{
-	case MM_WOM_DONE:
-	{
-		// same as OnWaveOutDone(dwParam1, dwParam2);
-		//ASSERT( (UINT)wParam == (UINT)m_WaveOutHandle );
-		//(LPWAVEHDR)lParam must be one of m_arrWaveHeader[3]
-		MMRESULT  mmresult = waveOutUnprepareHeader((HWAVEOUT)WaveOutHandle, (LPWAVEHDR)dwParam1, sizeof(WAVEHDR));
-		ASSERT(mmresult == MMSYSERR_NOERROR);
+		case MM_WOM_DONE:
+		{
+			MMRESULT  mmresult = waveOutUnprepareHeader((HWAVEOUT)WaveOutHandle, (LPWAVEHDR)dwParam1, sizeof(WAVEHDR));
+			ASSERT(mmresult == MMSYSERR_NOERROR);
 
-		break;
-	}
+			break;
+		}
 
-	case WIM_DATA:
-	{
-		break;
+		case WIM_DATA:
+		{
+			break;
+		}
 	}
-	} // end of switch
 }
