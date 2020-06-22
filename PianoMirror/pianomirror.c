@@ -22,11 +22,11 @@
 //		1.4		20-Feb-2020		Added LUA scripting language to process scripts during MIDI call backs
 //		1.5		22-Feb-2020		Added metronome functionality
 //		1.6		15-June-2020	Bug Fixes to metronome functionality; also added ability to use two .WAV files; one for the downbeat; and implemented ability to set beats per measure
-//
+//		1.7		22-June-2020	Added CMD_SET_SPLIT_POINT functionality
 //
 
 // This string must be updated here, as well as in PianoMirro.rc!!!
-const char *VersionString = "1.6";				
+const char *VersionString = "1.7";				
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,7 +84,7 @@ typedef struct {
 #define	CMD_MSG_ACK			1000
 
 // flag indicating 
-int callback_exit_flag;
+//int callback_exit_flag;
 
 // transposition modes we support
 enum transpositionModes {NO_TRANSPOSITION, LEFT_ASCENDING, RIGHT_DESCENDING, MIRROR_IMAGE};
@@ -104,12 +104,14 @@ int callback_active = FALSE;
 
 int script_is_loaded = FALSE;
 
+int debug_mode = FALSE;
+
 // takes an input node, and maps it according to current transposition mode
 PmMessage TransformNote(PmMessage Note) {
 
 	PmMessage	retval = Note;
 	int			offset;
-
+	
 	switch (transpositionMode) {
 
 	case NO_TRANSPOSITION:
@@ -119,32 +121,32 @@ PmMessage TransformNote(PmMessage Note) {
 		
 	// make left hand ascend
 	case LEFT_ASCENDING:
-		if (Note < 62) {
-			offset = (62 - Note);
-			retval = 62 + offset;
+		if (Note < splitPoint) {
+			offset = (splitPoint - Note);
+			retval = splitPoint + offset;
 		} // else do nothing;
 		break;
 		
 	// make right hand descend
 	case RIGHT_DESCENDING:
-		if (Note > 62) {
-			offset = (Note - 62);
-			retval = 62 - offset;
+		if (Note > splitPoint) {
+			offset = (Note - splitPoint);
+			retval = splitPoint - offset;
 		} // else do nothing;
 		break;
 	
 	// completely reverse the keyboard
 	case MIRROR_IMAGE:
-		if (Note == 62) {
+		if (Note == splitPoint) {
 			// do nothing
 		}
-		else if (Note < 62) {
-			offset = (62 - Note);
-			retval = 62 + offset;
+		else if (Note < splitPoint) {
+			offset = (splitPoint - Note);
+			retval = splitPoint + offset;
 		}
-		else if (Note > 62) {
-			offset = (Note - 62);
-			retval = 62 - offset;
+		else if (Note > splitPoint) {
+			offset = (Note - splitPoint);
+			retval = splitPoint - offset;
 		}
 		break;
 	}
@@ -223,6 +225,9 @@ void process_midi(PtTimestamp timestamp, void *userData)
 					return;
 					//no break needed; above statement just exits function
 				case CMD_SET_SPLIT_POINT:
+					splitPoint = (cmd.Param1);
+					response.cmdCode = CMD_MSG_ACK;
+					Pm_Enqueue(callback_to_main, &response);
 					break;
 				case CMD_SET_MODE:
 					transpositionMode = (cmd.Param1);
@@ -245,7 +250,7 @@ void process_midi(PtTimestamp timestamp, void *userData)
 			data1 = Pm_MessageData1(buffer.message);
 			data2 = Pm_MessageData2(buffer.message);
 
-			if (FALSE) {
+			if (debug_mode) {
 				printf("status = %d, data1 = %d, data2 = %d \n", status, data1, data2);
 			}
 
@@ -396,7 +401,7 @@ void signalExitToCallBack() {
 
 }
 
-// send a quit message to the callback function
+// send change mode command 
 // then wait around until it sends us an ACK back
 void set_transposition_mode(enum transpositionModes newmode) {
 
@@ -407,6 +412,31 @@ void set_transposition_mode(enum transpositionModes newmode) {
 
 	msg.cmdCode = CMD_SET_MODE;
 	msg.Param1 = newmode;
+	Pm_Enqueue(main_to_callback, &msg);
+
+	// wait for the callback to send back acknowledgement
+	receivedAck = FALSE;
+	do {
+		if (Pm_Dequeue(callback_to_main, &response) == 1) {
+			if (response.cmdCode == CMD_MSG_ACK) {
+				receivedAck = TRUE;
+			}
+		}
+	} while (!receivedAck);
+
+}
+
+// send change split point command
+// then wait around until it sends us an ACK back
+void set_keyboard_splitpoint(const int new_split_point) {
+
+	int receivedAck;
+
+	CommandMessage msg;
+	CommandMessage response;
+
+	msg.cmdCode = CMD_SET_SPLIT_POINT;
+	msg.Param1 = new_split_point;
 	Pm_Enqueue(main_to_callback, &msg);
 
 	// wait for the callback to send back acknowledgement
@@ -538,6 +568,7 @@ void PrintHelp()
 	" 8  [enter] set metronome BMP\n"
 	" 9  [enter] set time signature\n"
 	" 10 [enter] enable\\disable metronome\n"
+	" 11 [enter] set keyboard split point\n"
 	" q  [enter] to quit\n");
 
 }
@@ -619,7 +650,7 @@ void HandleKeyboard()
 	}
 
 	if (strcmp(line, "9") == 0) {
-		
+
 		printf("\nTime Signatures:\n"
 			" 0 [enter] none (just click on each beat) \n"
 			" 1 [enter] 2/4 \n"
@@ -631,7 +662,7 @@ void HandleKeyboard()
 		int timeSig;
 		if (scanf("%d", &timeSig) == 1) {
 
-			switch (timeSig) { 
+			switch (timeSig) {
 			case 0:
 				printf("none\n");
 				setBeatsPerMeasure(0);
@@ -674,6 +705,20 @@ void HandleKeyboard()
 
 	}
 
+	if (strcmp(line, "11") == 0) {
+		printf("\Example Split Points:\n"
+			" 62 = middle d [default] \n"
+			" 56 = a# below middle a \n"
+			" 68 = a# above middle d \n");
+
+		printf("Enter split point: ");
+		int n;
+		if (scanf("%d", &n) == 1) {
+			set_keyboard_splitpoint(n);
+			printf("split point set to %d\n", n);
+		}
+	}
+
 }
 
 int main(int argc, char *argv[])
@@ -698,8 +743,6 @@ int main(int argc, char *argv[])
 	finished = FALSE;
 	while (!finished) {
 
-		//DoMetronome();
-
 		// once every 5 seconds, check to see any loaded .LUA scrips have been modified [externally, i.e. in a text editor]
 		// and re-load them if so
 		if (GetTickCount() > (last_count + 5000)) {
@@ -722,8 +765,6 @@ int main(int argc, char *argv[])
 		}
 		
 	} // while (!finished)
-
-	
 
 	shutdownSystem();
 	return 0;

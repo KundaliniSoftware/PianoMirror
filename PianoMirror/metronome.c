@@ -10,6 +10,7 @@
 // Usage:
 //	InitMetronome()
 //	setBMP(180);
+//	setBeatsPerMeasure(4);		// optional
 //	EnableMetronome();
 //	While (1)
 //		DoMetronome

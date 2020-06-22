@@ -157,6 +157,7 @@
     <Image Include="icon2.ico" />
   </ItemGroup>
   <ItemGroup>
+    <Media Include="wav\keyclick.wav" />
     <Media Include="wav\move.wav" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
