@@ -11,7 +11,9 @@
 //
 // Over the course of time, this gained more Windows-specific features. Additionally, as of version 1.4, I added support for user-defined
 // .LUA scripts, which allowed this code to quit being "just a piano mirror", but instead to begin to support other creative uses of real-time
-// MIDI remapping. What I am doing with it currently, is using it to implement "computer assisted dynamics".
+// MIDI remapping. What I am doing with it currently, is using it to implement "computer assisted dynamics":
+//
+//	https://www.kundalinisoftware.com/computer-assisted-dynamics/
 //
 // Version History 
 //
@@ -23,10 +25,11 @@
 //		1.5		22-Feb-2020		Added metronome functionality
 //		1.6		15-June-2020	Bug Fixes to metronome functionality; also added ability to use two .WAV files; one for the downbeat; and implemented ability to set beats per measure
 //		1.7		22-June-2020	Added CMD_SET_SPLIT_POINT functionality
+//		1.8		12-July-2020	Initial version of "Auto Legato" added; hardening .LAU code
 //
 
 // This string must be updated here, as well as in PianoMirro.rc!!!
-const char *VersionString = "1.7";				
+const char *VersionString = "1.8";				
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,14 +86,13 @@ typedef struct {
 // ackknowledgement of received message
 #define	CMD_MSG_ACK			1000
 
-// flag indicating 
-//int callback_exit_flag;
 
 // transposition modes we support
 enum transpositionModes {NO_TRANSPOSITION, LEFT_ASCENDING, RIGHT_DESCENDING, MIRROR_IMAGE};
 
 enum transpositionModes transpositionMode = NO_TRANSPOSITION;
-int splitPoint = 62;	// default to middle d
+
+#define MAX_DELAYED_MIDI_COMMANDS 50
 
 lua_State* Lua_State;
 
@@ -104,7 +106,41 @@ int callback_active = FALSE;
 
 int script_is_loaded = FALSE;
 
-int debug_mode = FALSE;
+int auto_legato_active = FALSE;
+int auto_legato_delay_ms = 100;
+
+int splitPoint = 62;
+int debug_mode = 0;
+
+// keep track of auto legato notes...
+typedef struct {
+
+	int Status;
+	int Data1;
+	int Data2;
+
+	int NextMIDINote;
+	DWORD timeToSend;					// 0 means to process based on MIDI note instead
+
+	boolean processedAlready;
+
+} DelayedCommandType;
+
+DelayedCommandType delayed_commands[MAX_DELAYED_MIDI_COMMANDS];
+int curDelayedCommandIndex = 0;
+
+// just add a delayed command to our circular buffer of commands to send out later...
+// this is used to implement MIDI commands that we can send out at a later time...
+void AddDelayedCommand(DelayedCommandType cmd) {
+
+	memcpy( (void*) &delayed_commands[curDelayedCommandIndex], (const void*)&cmd, sizeof(DelayedCommandType));
+
+	delayed_commands[curDelayedCommandIndex].processedAlready = FALSE;
+
+	// just make a circular buffer...
+	if (curDelayedCommandIndex == 10) curDelayedCommandIndex = 0; else curDelayedCommandIndex++;
+
+}
 
 // takes an input node, and maps it according to current transposition mode
 PmMessage TransformNote(PmMessage Note) {
@@ -192,13 +228,54 @@ void exit_with_message(char *msg)
 	exit(1);
 }
 
-void ProcessOldAutoLegatos() {
+void InitializeDelayedCommands() {
+
+	int i;
+
+	for (i = 0; i < MAX_DELAYED_MIDI_COMMANDS; i++) {
+
+		delayed_commands[i].Status = 0;
+		delayed_commands[i].Data1 = 0;
+		delayed_commands[i].Data2 = 0;
+		delayed_commands[i].NextMIDINote = 0; 
+		delayed_commands[i].timeToSend = 0;
+		delayed_commands[i].processedAlready = TRUE;			// seems like a reasonable default
+
+	}
+
+}
+
+void ProcessDelayedCommands() {
+
+	int i;
+	PmEvent buffer;
+
+	for (i = 0; i < MAX_DELAYED_MIDI_COMMANDS; i++) {
+
+		// if it is time to send out this command, then do it (!) and mark it 
+		// as sent
+		if (delayed_commands[i].timeToSend && 
+			GetTickCount() >= delayed_commands[i].timeToSend && 
+			!delayed_commands[i].processedAlready) {
+
+			buffer.message =
+				Pm_Message(delayed_commands[i].Status, delayed_commands[i].Data1, delayed_commands[i].Data2);
+
+			Pm_Write(midi_out, &buffer, 1);
+			
+			delayed_commands[i].timeToSend = 0;
+			delayed_commands[i].processedAlready = TRUE;
+		}
+
+	}
 
 }
 
 // callback function 
 void process_midi(PtTimestamp timestamp, void *userData)
 {
+
+	DelayedCommandType delayedCommand;
 
 	PmError result;
 	PmEvent buffer;
@@ -262,32 +339,74 @@ void process_midi(PtTimestamp timestamp, void *userData)
 
 			// Run any user-defined .LUA scripts
 
-			if (Lua_State) {
+			///////////////////////////////////////////////
+			// this code needs debugged!!
+			///////////////////////////////////////////////
+
+			if (Lua_State && script_is_loaded) {
 
 				// Push the fib function on the top of the lua stack
 				lua_getglobal(Lua_State, "process_midi");
 
-				lua_pushnumber(Lua_State, status);
-				lua_pushnumber(Lua_State, data1);
-				lua_pushnumber(Lua_State, data2);
+				// make sure the .Lua function process_midi is defined
+				if (lua_isfunction(Lua_State, -1)) {
 
-				lua_call(Lua_State, 3, 3);
+					lua_pushnumber(Lua_State, status);
+					lua_pushnumber(Lua_State, data1);
+					lua_pushnumber(Lua_State, data2);
 
-				// Get the result from the lua stack
-				status = (int)lua_tointeger(Lua_State, -3);
-				data1 = (int)lua_tointeger(Lua_State, -2);
-				data2 = (int)lua_tointeger(Lua_State, -1);
+					if (lua_pcall(Lua_State, 3, 3, 0) == 0) {
 
-				// Clean up.  If we don't do this last step, we'll leak stack memory.
-				lua_pop(Lua_State, 3);
+						// Get the result from the lua stack
+						if ((lua_gettop(Lua_State) == 3 && lua_isnumber(Lua_State, -3) && lua_isnumber(Lua_State, -2) && lua_isnumber(Lua_State, -1))) {
+							status = (int)lua_tointeger(Lua_State, -3);
+							data1 = (int)lua_tointeger(Lua_State, -2);
+							data2 = (int)lua_tointeger(Lua_State, -1);
+						} else
+							printf("function 'process_midi' must return 3 numbers\n");
+
+						// Clean up.  If we don't do this last step, we'll leak stack memory.
+						lua_settop(Lua_State, 0);		// discard anything returned, since we don't really know how many items were returned for sure
+						//lua_pop(Lua_State, 3);
+
+					}
+					else {
+						printf("error running function `process_midi': %s\n", lua_tostring(Lua_State, -1));
+					}
+
+				}
+				else
+					printf("no process_midi function defined in loaded .Lua script\n");
 
 			}
 
 			buffer.message =
 				Pm_Message(status, NewNote, data2);
 
-			if (shouldEcho)
+			// temporarily, don't send out any any echo offs...
+			//shouldEcho = (data2 != 0);
+
+			// if this is a up...
+			if (data2 == 0) {
+
+				// then don't send out any note-ups until 1 second later if we are using
+				// our "auto legato" function...
+				if (auto_legato_active) {
+
+					delayedCommand.Data1 = data1;
+					delayedCommand.Data2 = data2;
+					delayedCommand.Status = status;									// this should be 0...
+					delayedCommand.NextMIDINote = 0;
+					delayedCommand.timeToSend = GetTickCount() + auto_legato_delay_ms;
+
+					AddDelayedCommand(delayedCommand);
+				} else
+					// we are not using auto legato, just send it through
+					Pm_Write(midi_out, &buffer, 1);
+			} else {
+				// this is a note up, so just send it along
 				Pm_Write(midi_out, &buffer, 1);
+			}
 
 			// very bottom note on the piano can be used to toggle through the transpotion modes...
 			// (it is not used very much anyway)
@@ -469,6 +588,7 @@ void LoadLuaScript()
 {
 	
 	char tmp[255];
+	char ext[] = ".lua";
 
 	if (Lua_State) {
 		lua_close(Lua_State);
@@ -486,10 +606,16 @@ void LoadLuaScript()
 		strcpy(script_file, SCRIPT_LOCATION);
 		strcat(script_file, tmp);
 
+		// tack on the extension if none is present
+		if (!strchr(script_file, '.'))
+			strcat(script_file, ext);
+
 		if (fileexists(script_file))
 		{
-			luaL_dofile(Lua_State, script_file);
-			script_is_loaded = TRUE;
+			script_is_loaded = (luaL_dofile(Lua_State, script_file) == 0);
+			if (!script_is_loaded) {
+				printf("%s\n", lua_tostring(Lua_State, -1));
+			}
 		}
 		else
 			printf("error loading lau script: %s\n", script_file);
@@ -511,9 +637,14 @@ void ReLoadLuaScript()
 	luaL_openlibs(Lua_State);
 
 	if (fileexists(script_file))
-		luaL_dofile(Lua_State, script_file);
+	{
+		script_is_loaded = (luaL_dofile(Lua_State, script_file) == 0);
+		if (!script_is_loaded) {
+			printf("error in .Lua script: %s\n", lua_tostring(Lua_State, -1));
+		}
+	}
 	else
-		printf("error loading lau script\n");
+		printf("error loading lau script %s\n", script_file);
 	
 }
 
@@ -569,6 +700,8 @@ void PrintHelp()
 	" 9  [enter] set time signature\n"
 	" 10 [enter] enable\\disable metronome\n"
 	" 11 [enter] set keyboard split point\n"
+	" 12 [enter] toggle autolegato\n"
+	" 13 [enter] set autolegato delay (ms)\n"
 	" q  [enter] to quit\n");
 
 }
@@ -706,7 +839,7 @@ void HandleKeyboard()
 	}
 
 	if (strcmp(line, "11") == 0) {
-		printf("\Example Split Points:\n"
+		printf("Example Split Points:\n"
 			" 62 = middle d [default] \n"
 			" 56 = a# below middle a \n"
 			" 68 = a# above middle d \n");
@@ -717,6 +850,24 @@ void HandleKeyboard()
 			set_keyboard_splitpoint(n);
 			printf("split point set to %d\n", n);
 		}
+	}
+
+	if (strcmp(line, "12") == 0) {
+		auto_legato_active = !auto_legato_active;
+		if (auto_legato_active)
+			printf("auto legato enabled");
+		else
+			printf("auto legato disabled");
+	}
+
+	if (strcmp(line, "13") == 0) {
+		printf("Enter auto legato delay, in milliseconds: ");
+		int n;
+		if (scanf("%d", &n) == 1) {
+			auto_legato_delay_ms = n;
+			printf("auto_legato_delay_ms set to %d\n", n);
+		}
+
 	}
 
 }
@@ -739,6 +890,7 @@ int main(int argc, char *argv[])
 	last_count = GetTickCount();
 
 	InitMetronome();
+	InitializeDelayedCommands();
 
 	finished = FALSE;
 	while (!finished) {
@@ -764,6 +916,7 @@ int main(int argc, char *argv[])
 			HandleKeyboard();
 		}
 		
+		ProcessDelayedCommands();
 	} // while (!finished)
 
 	shutdownSystem();
