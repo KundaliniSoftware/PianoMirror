@@ -1,4 +1,10 @@
-﻿#﻿# About
+﻿# Note
+
+This repo is not maintained anymore, because I no longer run Windows at all! (I have moved to a Linux-based Laptop!) For now, please see the Linux version of this software, which is available on GitHub [here](https://github.com/BenjaminPritchard/KundaliniPianoMirrorLinux).  Additionally, in the works now is the final (!) version which is being re-written from the ground up using GoLang. (I will post a link to the repo once I have something to upload to GitHub.)
+
+Thanks
+
+#﻿# About
 
 **The Kundalini Piano Mirror** is a program for real-time transposition (remapping) of midi messages. 
 
